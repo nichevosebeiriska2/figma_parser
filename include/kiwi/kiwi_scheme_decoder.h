@@ -13,7 +13,7 @@ public:
 
 protected:
 	tVecTypes	m_vecTypes;
-	tVectorData m_vecDataScheme; // first chunk with kiwi scheme
+	TVectorData m_vecDataScheme; // first chunk with kiwi scheme
 
 	
 
@@ -21,7 +21,7 @@ protected:
 	void				DecodeScheme(KiwiReader &reader);
 
 public:
-	KiwiScheme(tVectorData&& vecDataFirstChunk);
+	KiwiScheme(TVectorData&& vecDataFirstChunk);
 	bool Decode();
 
 	tVecTypes GetTypes();
@@ -52,6 +52,6 @@ protected:
 	tKiwiValue	DecodeMessage(KiwiReader& reader, const KiwiTypeScheme& type_root);
 
 public:
-	KiwiDecoder(KiwiScheme&& scheme, tVectorData&& vecDataSecondChunk);
+	KiwiDecoder(KiwiScheme&& scheme, TVectorData&& vecDataSecondChunk);
 	tKiwiValue Decode();
 };

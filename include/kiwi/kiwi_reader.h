@@ -5,11 +5,11 @@
 class KiwiReader
 {
 protected:
-	tVectorData m_data;
+	TVectorData m_data;
 	size_t m_iCurrentPosition = 0;
 
 public:
-	KiwiReader(tVectorData &&data);
+	KiwiReader(TVectorData &&data);
 	std::string GetString();
 
 	bool GetBool();

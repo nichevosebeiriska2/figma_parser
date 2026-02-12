@@ -4,7 +4,7 @@
 #include "kiwi_scheme_decoder.h"
 #include "allocation.h"
 
-KiwiScheme::KiwiScheme(tVectorData &&vecDataFirstChunk)
+KiwiScheme::KiwiScheme(TVectorData &&vecDataFirstChunk)
 	: m_vecDataScheme{std::move(vecDataFirstChunk)}
 {
 }
@@ -29,7 +29,6 @@ void KiwiScheme::DecodeScheme(KiwiReader &reader)
 			.m_iKind = reader.GetByte()
 		};
 
-		//auto &vecFields = type.m_vecFields;
 		auto &mapFields = type.m_mapFields;
 
 		const UINT iNumOfFields = reader.GetUint();
@@ -193,7 +192,7 @@ tKiwiValue KiwiDecoder::DecodeStruct(KiwiReader &reader, const KiwiTypeScheme& t
 	return sPtrStruct;
 }
 
-KiwiDecoder::KiwiDecoder(KiwiScheme&& scheme, tVectorData&& vecDataSecondChunk)
+KiwiDecoder::KiwiDecoder(KiwiScheme&& scheme, TVectorData&& vecDataSecondChunk)
 	: m_scheme{std::move(scheme)}
 	, m_reader{std::move(vecDataSecondChunk)}
 {}

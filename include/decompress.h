@@ -10,8 +10,8 @@
 #include "types.h"
 
 enum class CompressionFormat { ZLIB, GZIP, RAW_DEFLATE };
-using tOptData = std::optional<tVectorData>;
+using tOptData = std::optional<TVectorData>;
 
 tOptData smart_decompress(std::span<BYTE>& compressed);
-tOptData decompress_zstd_chunk(tVectorData &&vecData);
-tOptData read_file(const std::string &strPath);
+tOptData decompress_zstd_chunk(TVectorData &&vecData);
+tOptData ReadFile(const std::string &strPath);

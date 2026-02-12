@@ -38,7 +38,7 @@ std::string ComplexDataTypeToString(EEntityKind eType)
 	return "";
 }
 
-KiwiReader::KiwiReader(tVectorData &&data)
+KiwiReader::KiwiReader(TVectorData &&data)
 	: m_data{data}
 {
 }

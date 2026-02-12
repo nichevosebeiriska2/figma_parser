@@ -60,13 +60,12 @@ using tMapWithArenaAllocator = std::map < std::string, tKiwiValue, std::less<>, 
 
 struct sEnum
 {
-	std::string m_strEnumName;
 	std::string m_strValue;
 };
 
 struct sMessage
 {
-	std::pmr::map<std::string, tKiwiValue> m_mapValues{&g_arena_allocator};
+	std::pmr::map<std::string_view, tKiwiValue> m_mapValues{&g_arena_allocator};
 };
 
 struct sArray

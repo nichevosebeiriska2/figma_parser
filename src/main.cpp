@@ -7,6 +7,8 @@
 #include <optional>
 #include <filesystem>
 #include <iostream>
+#include <print>
+#include <expected>
 
 #include <zlib.h>
 #include <zstd.h>
@@ -14,9 +16,10 @@
 #include "decompress.h"
 #include "json_dump.h"
 #include "json_utilities.h"
-//#include "types.h"
 
-tOptData decompress_first_chunk(tVectorData &vecData, size_t &iIndexMainChunk, UINT *iFigmaVersion = nullptr)
+std::string_view strErrorFormat = "Error : {}";
+
+tOptData decompress_first_chunk(TVectorData &vecData, size_t &iIndexMainChunk, UINT *iFigmaVersion = nullptr)
 {
 	std::string strFigmaHeader{vecData.data(), vecData.data() + 12};
 
@@ -31,14 +34,14 @@ tOptData decompress_first_chunk(tVectorData &vecData, size_t &iIndexMainChunk, U
 	return smart_decompress(span_to_decompress);
 }
 
-tOptData decompress_second_chunk(tVectorData &vecData, size_t iOffset)
+tOptData decompress_second_chunk(TVectorData &vecData, size_t iOffset)
 {
-	bool parsed = false;
 	int iNextChunkSize = *reinterpret_cast<int *>(vecData.data() + iOffset);
 
 	std::vector<unsigned char> to_decompress{vecData.begin()+iOffset + 4, vecData.begin()+iOffset+ 4 + iNextChunkSize};
 	return decompress_zstd_chunk(std::move(to_decompress));
 }
+
 
 bool SaveSchemeToFile(KiwiScheme& scheme)
 {
@@ -76,13 +79,29 @@ bool SaveDataToFile(auto &&root_value)
 	return !file.fail();
 }
 
+void PrintHelpInfo()
+{
+	std::print(
+		"first argument - input .fig file\n"
+		"second argument - output directory path(optional). if specified path does not exist print 'Y' to create it"
+	);
+}
 
 void main(int argc, char** argv)
 {
-	using namespace rapidjson;
-
 	using namespace std::filesystem;
 	
+	std::vector<std::string> vecArguments(1);
+	for (int i = 0; i < argc-1; i++)
+		vecArguments.emplace_back(argv[i+1]);
+
+	//vecArguments[0] = "--help";
+
+	if (vecArguments[0] == "--help")
+	{
+		PrintHelpInfo();
+		return;
+	}
 	//argc = 2;
 	//argv = char[2]
 	//*argv[0] = "";
@@ -94,16 +113,33 @@ void main(int argc, char** argv)
 	//	return;
 	//}
 
-	path path_to_file{ /*argv[1]*/R"(C:\Users\dmileykin\source\repos\figma_to_json\canvas.fig)"};
+	path path_to_file{ R"(C:\Users\niche\source\repos\figma_to_json\canvas.fig)"};
+	path path_output{ R"(C:\Users\niche\source\repos\figma_to_json\figma_to_json2)" };
 
 	if (!exists(path_to_file))
 	{
-		std::cout << std::format("Error : file {} does not exists", argv[1]);
+		std::print("Error : file {} does not exists", path_to_file.string());
 		return;
 	}
 
+	else if (!exists(path_output))
+	{
+		std::print("output path \"{}\" does not exists. create it anyway?\nY/n\n", path_output.string());
+		std::string strAnswer;
+		std::cin >> strAnswer;
 
-	auto binary_data = read_file(path_to_file.string());
+		if (strAnswer == "Y" || strAnswer == "y")
+			std::filesystem::create_directories(path_output);
+		else
+		{
+			std::print("exit");
+			return;
+		}
+	}
+
+	std::println("extracting .fig data...");
+
+	auto binary_data = ReadFile(path_to_file.string());
 
 	if (!binary_data)
 	{
@@ -113,11 +149,14 @@ void main(int argc, char** argv)
 
 	size_t iChunkSize = 0;
 
+
+	std::println("decompressing...");
+
 	auto decompressed_first_chunk = decompress_first_chunk(*binary_data, iChunkSize);
 
 	if (!decompressed_first_chunk)
 	{
-		std::cout << "Error : failed to decompress first chunk (kiwi scheme chunk) by gzip/zstd";
+		std::println("failed to decompress first chunk(kiwi scheme chunk) by gzip / zstd");
 		return;
 	}
 
@@ -125,29 +164,34 @@ void main(int argc, char** argv)
 
 	if (!decompressed_second_chunk)
 	{
-		std::cout << "Error : failed to decompress second chunk (kiwi encoded data chunk) by gzip/zstd";
+		std::println("failed to decompress second chunk (kiwi encoded data chunk) by gzip/zstd");
 		return;
 	}
 
 	KiwiScheme scheme(std::move(*decompressed_first_chunk));
 	if (!scheme.Decode())
 	{
-		int a = 1;
+		std::println("kiwi scheme decoding error");
+		return;
 	}
-	SaveSchemeToFile(scheme);
-	
+
+	if (SaveSchemeToFile(scheme))
+		std::println("kiwi scheme saved to {}", path_output.string());
+	else
+	{
+		std::println("failed to save kiwi scheme");
+		return;
+	}
 
 	KiwiDecoder decoder(std::move(scheme), std::move(*decompressed_second_chunk));
 	auto root_message = decoder.Decode();
-
-
 
 	JsonArenaAllocator json_allocator;
 	JsonKiwiPrinter data_printer(json_allocator);
 	TJsonValue result = std::visit(data_printer, root_message);
 
-	if(!SaveDataToFile(result))
-	{
-		int a = 1;
-	}
+	if (SaveDataToFile(result))
+		std::println("kiwi data saved to {}", path_output.string());
+	else
+		std::println("failed to convert/save kiwi data as json");
 }

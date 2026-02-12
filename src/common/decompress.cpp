@@ -81,7 +81,7 @@ CompressionFormat detect_format(unsigned char* data)
 }
 
 
-tOptData decompress_zstd_chunk(tVectorData && compressed)
+tOptData decompress_zstd_chunk(TVectorData && compressed)
 {
 	unsigned long long uncompressed_size = ZSTD_getFrameContentSize(compressed.data(), compressed.size());
 
@@ -146,7 +146,7 @@ tOptData smart_decompress(std::span<BYTE>& compressed)
 	strm.avail_in = compressed.size();
 	strm.next_in = const_cast<Bytef *>(compressed.data());
 
-	tVectorData decompressed(compressed.size() * 5); // reserver 5 times of input data. its 
+	TVectorData decompressed(compressed.size() * 5); // reserver 5 times of input data. its 
 	strm.avail_out = decompressed.size();
 	strm.next_out = decompressed.data();
 
@@ -161,12 +161,12 @@ tOptData smart_decompress(std::span<BYTE>& compressed)
 	return decompressed;
 }
 
-std::optional<tVectorData> read_file(const std::string &strPath)
+std::optional<TVectorData> ReadFile(const std::string &strPath)
 {
 	std::ifstream file(strPath, std::ios::binary);
 
 	if(!file.is_open())
 		return std::nullopt;
 
-	return tVectorData{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>{}};
+	return TVectorData{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>{}};
 }

@@ -145,7 +145,8 @@ public:
 			TJsonValue message(rapidjson::kObjectType);
 			JsonKiwiPrinter printer(m_allocator);
 			for (auto& [name, kiwi_value] : arg->m_mapValues)
-				message.AddMember(TJsonValue(name.c_str(), name.length(), m_allocator), std::visit(printer, kiwi_value), m_allocator);
+				message.AddMember(TJsonValue(rapidjson::StringRef(name.data())), std::visit(printer, kiwi_value), m_allocator);
+				//message.AddMember(TJsonValue(name.c_str(), name.length(), m_allocator), std::visit(printer, kiwi_value), m_allocator);
 			
 			return message;
 		}
