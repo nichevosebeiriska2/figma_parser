@@ -12,7 +12,7 @@
 
 #include <zlib.h>
 #include <zstd.h>
-#include "kiwi_scheme_decoder.h"
+#include "kiwi_decoder.h"
 #include "decompress.h"
 #include "json_dump.h"
 #include "json_utilities.h"
@@ -113,8 +113,11 @@ void main(int argc, char** argv)
 	//	return;
 	//}
 
-	path path_to_file{ R"(C:\Users\niche\source\repos\figma_to_json\canvas.fig)"};
-	path path_output{ R"(C:\Users\niche\source\repos\figma_to_json\figma_to_json2)" };
+	path path_to_file{R"(C:\Users\dmileykin\source\repos\figma_to_json\canvas.fig)"};
+	path path_output{R"(C:\Users\dmileykin\source\repos\figma_parser)"};
+
+	//path path_to_file{ R"(C:\Users\niche\source\repos\figma_to_json\canvas.fig)"};
+	//path path_output{ R"(C:\Users\niche\source\repos\figma_to_json\figma_to_json2)" };
 
 	if (!exists(path_to_file))
 	{
@@ -186,11 +189,11 @@ void main(int argc, char** argv)
 	KiwiDecoder decoder(std::move(scheme), std::move(*decompressed_second_chunk));
 	auto root_message = decoder.Decode();
 
-	JsonArenaAllocator json_allocator;
-	JsonKiwiPrinter data_printer(json_allocator);
-	TJsonValue result = std::visit(data_printer, root_message);
+	rapidjson::Document doc;
 
-	if (SaveDataToFile(result))
+	JsonKiwiPrinter data_printer(doc.GetAllocator());
+
+	if (SaveDataToFile(std::visit(data_printer, root_message)))
 		std::println("kiwi data saved to {}", path_output.string());
 	else
 		std::println("failed to convert/save kiwi data as json");

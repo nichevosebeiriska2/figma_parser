@@ -1,24 +1,25 @@
 #include "kiwi_reader.h"
+#include <cmath>
 
 std::string PrimitiveDataTypeToString(EPrimitiveDataType eType)
 {
 	switch (eType)
 	{
-		case tBool:
+		case EPrimitiveDataTypeBool:
 			return "bool";
-		case tByte:
+		case EPrimitiveDataTypeByte:
 			return "byte";
-		case tInt:
+		case EPrimitiveDataTypeInt:
 			return "int";
-		case tUint:
+		case EPrimitiveDataTypeUint:
 			return "uint";
-		case tFloat:
+		case EPrimitiveDataTypeFloat:
 			return "float";
-		case tString:
+		case EPrimitiveDataTypeString:
 			return "string";
-		case tInt64:
+		case EPrimitiveDataTypeInt64:
 			return "int64";
-		case tUint64:
+		case EPrimitiveDataTypeUint64:
 			return "uint64";
 	}
 	return "";
@@ -28,11 +29,11 @@ std::string ComplexDataTypeToString(EEntityKind eType)
 {
 	switch (eType)
 	{
-		case ENUM:
+		case EEntityKindEnum:
 			return "enum";
-		case STRUCT:
+		case EEntityKindStruct:
 			return "structure";
-		case MESSAGE:
+		case EEntityKindMessage:
 			return "message";
 	}
 	return "";
@@ -108,8 +109,20 @@ float KiwiReader::GetFloat()
 	if(b == 0)
 		return 0.0f;
 
-	UINT bits = (b | GetByte() << 8 | GetByte() << 16 | GetByte() << 24);
+	BYTE b0 = b;
+	BYTE b1 = GetByte();
+	BYTE b2 = GetByte();
+	BYTE b3 = GetByte();
+
+	UINT bits = (b | b1 << 8 | b2 << 16 | b3 << 24);
 	bits = (bits << 23) | (bits >> 9);
+
+	float f = *reinterpret_cast<float *>(&bits);
+
+	if(std::isnan(f) || std::isinf(f))
+	{
+		int a = 1;
+	}
 
 	return *reinterpret_cast<float*>(&bits);
 }

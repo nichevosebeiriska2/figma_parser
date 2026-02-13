@@ -65,23 +65,18 @@ public:
 };
 
 
-template<typename TJsonAllocator>
+template<typename TJsonAllocator = rapidjson::Document::AllocatorType>
 class JsonKiwiPrinter
 {
-	using tAllocator = rapidjson::GenericDocument<rapidjson::UTF8<>, TJsonAllocator>;
-	TJsonAllocator& m_allocator;
-	
-	tAllocator m_doc;
-
+	using TDocument = rapidjson::Document;
+	TDocument::AllocatorType& m_allocator;
+	using TJsonValue = rapidjson::Value;
 public:
 
-	JsonKiwiPrinter(TJsonAllocator& allocator)
+	JsonKiwiPrinter(TDocument::AllocatorType &allocator)
 		: m_allocator{allocator}
-		, m_doc(&m_allocator)
 	{
 	}
-
-	rapidjson::Document Print(tKiwiValue& root_message);
 
 	auto operator()(auto&& arg) const
 	{
@@ -127,31 +122,37 @@ public:
 		{
 			return TJsonValue(arg.c_str(), arg.length(), m_allocator);
 		}
+		else if constexpr(std::is_same_v<tArgType, std::string_view>)
+		{
+			return TJsonValue(arg.data(), arg.length(), m_allocator);
+		}
 		else if constexpr (std::is_same_v<tArgType, uPtr<sEnum>>)
 		{
 			return TJsonValue(arg->m_strValue.c_str(), arg->m_strValue.length(), m_allocator);
 		}
 		else if constexpr (std::is_same_v<tArgType, uPtr<sStruct>>)
 		{
+			//return TJsonValue();
 			TJsonValue structure(rapidjson::kObjectType);
 			JsonKiwiPrinter printer(m_allocator);
 			for(auto &[name, kiwi_value] : arg->m_mapValues)
-				structure.AddMember(TJsonValue(name.c_str(), name.length(), m_allocator), std::visit(printer, kiwi_value), m_allocator);
+				structure.AddMember(TJsonValue(name.data(), name.length(), m_allocator), std::visit(printer, kiwi_value), m_allocator);
 
 			return structure;
 		}
 		else if constexpr (std::is_same_v<tArgType, uPtr<sMessage>>)
 		{
+			//return TJsonValue();
 			TJsonValue message(rapidjson::kObjectType);
 			JsonKiwiPrinter printer(m_allocator);
 			for (auto& [name, kiwi_value] : arg->m_mapValues)
 				message.AddMember(TJsonValue(rapidjson::StringRef(name.data())), std::visit(printer, kiwi_value), m_allocator);
-				//message.AddMember(TJsonValue(name.c_str(), name.length(), m_allocator), std::visit(printer, kiwi_value), m_allocator);
-			
+
 			return message;
 		}
 		else if constexpr (std::is_same_v<tArgType, uPtr<sArray>>)
 		{
+			//return TJsonValue();
 			TJsonValue array(rapidjson::kArrayType);
 			JsonKiwiPrinter printer(m_allocator);
 			for(auto &kiwi_value : arg->m_vecValues)

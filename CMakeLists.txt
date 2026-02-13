@@ -11,20 +11,20 @@ FetchContent_Declare(
   zstd
   URL "https://github.com/facebook/zstd/releases/download/v1.5.5/zstd-1.5.5.tar.gz"
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-  SOURCE_SUBDIR build/cmake # Points to zstd's CMakeLists.txt
+  SOURCE_SUBDIR build/cmake
 )
 
 FetchContent_Declare(
   ZLIB
   GIT_REPOSITORY https://github.com/madler/zlib.git
-  GIT_TAG        v1.3.1  # Фиксируем стабильную версию
-  GIT_SHALLOW    TRUE    # Опционально: ускоряет загрузку (только последний коммит)
+  GIT_TAG        v1.3.1
+  GIT_SHALLOW    TRUE
 )
 
 FetchContent_Declare(
   rapidjson
   GIT_REPOSITORY https://github.com/Tencent/rapidjson.git
-  GIT_TAG        v1.1.0  # Рекомендуется указать конкретную версию или хеш коммита
+  GIT_TAG        v1.1.0  
 )
 
 FetchContent_MakeAvailable(zstd ZLIB rapidjson)
@@ -51,7 +51,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/kiwi
     ${CMAKE_SOURCE_DIR}/include/json
-    ${CMAKE_SOURCE_DIR}/include/allocation
     ${rapidjson_SOURCE_DIR}/include
     ${zstd_SOURCE_DIR}/lib
     ${zlib_SOURCE_DIR}
@@ -62,9 +61,9 @@ target_link_libraries(${PROJECT_NAME} PUBLIC zlib)
 target_link_libraries(${PROJECT_NAME} PUBLIC libzstd_static)
 
 if(TARGET zlibstatic)
-    set(ZLIB_TARGET zlibstatic)      # Статическая библиотека (чаще всего)
+    set(ZLIB_TARGET zlibstatic) 
 elseif(TARGET zlib)
-    set(ZLIB_TARGET zlib)            # Альтернативное имя
+    set(ZLIB_TARGET zlib)
 else()
     message(FATAL_ERROR "zlib not found after add_subdirectory!")
 endif()
@@ -81,4 +80,3 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE ZSTD_STATIC_LINKING_ONLY)
 set_target_properties(${PROJECT_NAME} PROPERTIES 
     VS_DEBUGGER_COMMAND "debug_command"
     VS_DEBUGGER_COMMAND_ARGUMENTS "debug_arguments")
-

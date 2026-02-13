@@ -4,27 +4,6 @@
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/document.h"
 
-class JsonArenaAllocator {
-private:
-    std::pmr::monotonic_buffer_resource* resource;
-    static constexpr size_t ALIGNMENT = 16; // allocated memory allignment
-
-public:
-    static const bool kNeedFree = false; // disable invididual deallocations
-
-    explicit JsonArenaAllocator(size_t arena_buffer_initial_size = 1024 * 1024);
-    
-    JsonArenaAllocator(const JsonArenaAllocator& other) noexcept;// copy constructor required by rapidjson
-
-    void* Malloc(size_t size);
-    void* Realloc(void* originalPtr, size_t originalSize, size_t newSize);
-    static void Free(void* ptr) noexcept;
-};
-
-
-using TJsonValue = rapidjson::GenericValue<rapidjson::UTF8<>, JsonArenaAllocator>;
-using TJsonDocument = rapidjson::GenericDocument<rapidjson::UTF8<>, JsonArenaAllocator>;
-
 void AddValue(rapidjson::Value& json_parent, const std::string& strName, bool value_bool, auto& allocator)
 {
     using namespace rapidjson;
