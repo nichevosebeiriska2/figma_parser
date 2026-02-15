@@ -8,4 +8,4 @@ using INT64				= int64_t;
 using UINT				= uint32_t;
 using UINT64			= uint64_t;
 template<typename T>
-using uPtr = std::unique_ptr<T>;
+using uPtr				= std::unique_ptr<T>;

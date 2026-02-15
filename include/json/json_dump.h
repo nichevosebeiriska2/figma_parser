@@ -12,21 +12,19 @@
 class JsonSchemePrinter
 {
 protected:
-	auto SchemeTypeToJson(auto& scheme, const KiwiTypeScheme& type, auto& allocator) const
+	auto SchemeTypeToJson(auto& scheme, const KiwiSchemeType& type, auto& allocator) const
 	{
 		using namespace rapidjson;
 		Value object(kObjectType);
+		Value arrayFields(kArrayType);
 
-		const std::string strKind = ComplexDataTypeToString(static_cast<EEntityKind>(type.m_iKind));
+		std::string_view strDataType;
+		std::string_view strKind = ComplexDataTypeToString(static_cast<EEntityKind>(type.m_eKind));
 
-		Value arr_fields(kArrayType);
-
-		std::string strDataType;
-		strDataType.reserve(128);
 
 		for (auto& [field_id, field] : type.m_mapFields)
 		{
-			Value object_field(kObjectType);
+			Value objectField(kObjectType);
 
 			
 			if (field.m_iType < 0)
@@ -34,19 +32,21 @@ protected:
 			else
 			{
 				const auto& type = scheme.GetTypeById(field.m_iType);
-				strDataType = ComplexDataTypeToString(static_cast<EEntityKind>(type.m_iKind)) + "(" + field.m_strName + ")";
+				strDataType = ComplexDataTypeToString(type.m_eKind);
 			}
 
-			AddValues(object_field, allocator
-								  , std::string{ "name" },	field.m_strName
-								  , std::string{ "array" }, field.m_bArray
-								  , std::string{ "type" },	strDataType
-								  , std::string{ "value" }, field.m_Value);
+			// it effective to use string referenses due to guaranteed scheme lifetime
+			objectField.AddMember("name", rapidjson::StringRef(field.m_strName.data(), field.m_strName.length()), allocator);
+			objectField.AddMember("type", rapidjson::StringRef(strDataType.data(), strDataType.length()), allocator);
+			objectField.AddMember("array", field.m_bArray, allocator);
+			objectField.AddMember("value", field.m_Value, allocator);
 
-			arr_fields.PushBack(object_field, allocator);
+			arrayFields.PushBack(std::move(objectField), allocator);
 		}
 
-		AddValues(object, allocator, std::string{ "name" }, type.m_strName, "kind", strKind, std::string{ "fields" }, std::move(arr_fields));
+		object.AddMember("name",	rapidjson::Value(type.m_strName.data(), type.m_strName.length()), allocator);
+		object.AddMember("kind",	rapidjson::Value(strKind.data(), strKind.length()), allocator);
+		object.AddMember("fields",	std::move(arrayFields),	allocator);
 
 		return std::move(object);
 	}
@@ -57,7 +57,7 @@ public:
 		Document doc(kArrayType);
 		auto& allocator = doc.GetAllocator();
 
-		for (const KiwiTypeScheme& type : scheme.GetTypes())
+		for (const KiwiSchemeType& type : scheme.GetTypes())
 			doc.PushBack(SchemeTypeToJson(scheme, type, allocator), allocator);
 
 		return doc;
@@ -68,213 +68,71 @@ public:
 template<typename TJsonAllocator = rapidjson::Document::AllocatorType>
 class JsonKiwiPrinter
 {
-	using TDocument = rapidjson::Document;
-	TDocument::AllocatorType& m_allocator;
+	using TAllocator = rapidjson::Document::AllocatorType;
 	using TJsonValue = rapidjson::Value;
+
+	TAllocator* m_allocator;
+
 public:
 
-	JsonKiwiPrinter(TDocument::AllocatorType &allocator)
+	JsonKiwiPrinter()
+		: m_allocator{ new TAllocator() }
+	{
+	}
+
+	JsonKiwiPrinter(TAllocator* allocator)
 		: m_allocator{allocator}
 	{
 	}
 
-	auto operator()(auto&& arg) const
+	TJsonValue operator()(auto&& arg) const
 	{
 		using tArgType = std::remove_cvref_t <decltype(arg)> ;
-		if constexpr (std::is_same_v<tArgType, std::monostate>)
-		{
-			return TJsonValue();
-		}
-		else if constexpr (std::is_same_v<tArgType, bool>)
-		{
+
+		if constexpr (std::is_same_v<tArgType, std::monostate>) // dont know exactly 
+			return TJsonValue(rapidjson::kNullType);
+
+		else if constexpr (std::is_integral_v<tArgType>) // BYTE/INT/UINT/INT64/UINT64
 			return TJsonValue(arg);
-		}
-		else if constexpr (std::is_same_v<tArgType, BYTE>)
-		{
-			return TJsonValue((int)arg);
-		}
-		else if constexpr (std::is_same_v<tArgType, INT>)
-		{
-			return TJsonValue(arg);
-		}
-		else if constexpr (std::is_same_v<tArgType, UINT>)
-		{
-			return TJsonValue(arg);
-		}
+
 		else if constexpr (std::is_same_v<tArgType, float>)
 		{
-			if(std::isnan(arg))
+			// sometimes decoder return nan/inf as a result of float parsing. its not clear how to parse float properly. 
+			// ocurrs with some pattern like for specific field only. is it even an error? 
+			// json writer would go down on nan/inf values so handle this cases as a string value
+			if (std::isnan(arg))
 				return TJsonValue("nan");
-			else if(std::isinf(arg))
+			else if (std::isinf(arg))
 				return TJsonValue("inf");
 
 			return TJsonValue(arg);
 		}
-		else if constexpr (std::is_same_v<tArgType, INT64>)
+
+		else if constexpr (std::is_same_v<tArgType, std::string> || std::is_same_v<tArgType, std::string_view>)
+			return TJsonValue(arg.data(), arg.length(), *m_allocator);
+
+		//else if constexpr (std::is_same_v<tArgType, uPtr<SEnum>>) // SEnum replaced with string_view to kiwi scheme enum value
+		//	return TJsonValue(rapidjson::StringRef(arg->m_strValue.data()));
+
+		else if constexpr (std::is_same_v<tArgType, uPtr<SStruct>> || std::is_same_v<tArgType, uPtr<SMessage>>)
 		{
-			return TJsonValue(arg);
-		}
-		else if constexpr (std::is_same_v<tArgType, UINT64>)
-		{
-			return TJsonValue(arg);
-		}
-		else if constexpr (std::is_same_v<tArgType, std::string>)
-		{
-			return TJsonValue(arg.c_str(), arg.length(), m_allocator);
-		}
-		else if constexpr(std::is_same_v<tArgType, std::string_view>)
-		{
-			return TJsonValue(arg.data(), arg.length(), m_allocator);
-		}
-		else if constexpr (std::is_same_v<tArgType, uPtr<sEnum>>)
-		{
-			return TJsonValue(arg->m_strValue.c_str(), arg->m_strValue.length(), m_allocator);
-		}
-		else if constexpr (std::is_same_v<tArgType, uPtr<sStruct>>)
-		{
-			//return TJsonValue();
-			TJsonValue structure(rapidjson::kObjectType);
+			TJsonValue object(rapidjson::kObjectType);
 			JsonKiwiPrinter printer(m_allocator);
 			for(auto &[name, kiwi_value] : arg->m_mapValues)
-				structure.AddMember(TJsonValue(name.data(), name.length(), m_allocator), std::visit(printer, kiwi_value), m_allocator);
+				object.AddMember(TJsonValue(rapidjson::StringRef(name.data())), std::visit(printer, kiwi_value), *m_allocator);
 
-			return structure;
+			return object;
 		}
-		else if constexpr (std::is_same_v<tArgType, uPtr<sMessage>>)
+		else if constexpr (std::is_same_v<tArgType, uPtr<SArray>>)
 		{
-			//return TJsonValue();
-			TJsonValue message(rapidjson::kObjectType);
-			JsonKiwiPrinter printer(m_allocator);
-			for (auto& [name, kiwi_value] : arg->m_mapValues)
-				message.AddMember(TJsonValue(rapidjson::StringRef(name.data())), std::visit(printer, kiwi_value), m_allocator);
-
-			return message;
-		}
-		else if constexpr (std::is_same_v<tArgType, uPtr<sArray>>)
-		{
-			//return TJsonValue();
 			TJsonValue array(rapidjson::kArrayType);
 			JsonKiwiPrinter printer(m_allocator);
 			for(auto &kiwi_value : arg->m_vecValues)
-				array.PushBack(std::visit(printer, kiwi_value), m_allocator);
+				array.PushBack(std::visit(printer, kiwi_value), *m_allocator);
 
 			return array;
 		}
 		else
 			static_assert(false, "JsonKiwiPrinter::Error - no case for one of tKiwiValue internal types");
 	}
-
-	//auto operator()(tKiwiValue& kiwi_value) const
-	//{
-	//	return 0;
-	//}
-
-	//auto operator()(bool b) const
-	//{
-	//	//return b;
-	//	return 0;
-	//}
-
-	//auto operator()(BYTE b) const
-	//{
-	//	//return b;
-	//	return 0;
-	//}
-
-	//auto operator()(INT i) const
-	//{
-	//	//return i;
-	//	return 0;
-	//}
-
-	//auto operator()(UINT i) const
-	//{
-	//	//return i;
-	//	return 0;
-	//}
-
-	//auto operator()(float i) const
-	//{
-	//	//return i;
-	//	return 0;
-	//}
-
-	//auto operator()(std::string i) const
-	//{
-	//	//return i;
-	//	return 0;
-	//}
-
-	//auto operator()(INT64 i) const
-	//{
-	//	//return i;
-	//	return 0;
-	//}
-
-	//auto operator()(UINT64 i) const
-	//{
-	//	//return i;
-	//	return 0;
-	//}
-
-	//auto operator()(uPtr<sEnum> i) const
-	//{
-	//	//return i;
-	//	return 0;
-	//}
-
-	//auto operator()(uPtr<sMessage> i) const
-	//{
-	//	//return i;
-	//	return 0;
-	//}
-
-	//auto operator()(uPtr<sStruct> i) const
-	//{
-	//	//return i;
-	//	return 0;
-	//}
 };
-
-class JsonVisitor
-{
-	virtual rapidjson::Value Serialize(const tKiwiValue& kiwi_value) = 0;
-};
-
-class JsonVisitorNull
-{
-	rapidjson::Value Serialize(const tKiwiValue& kiwi_value);
-};
-
-class JsonVisitorBool
-{
-	rapidjson::Value Serialize(const tKiwiValue& kiwi_value);
-};
-
-class JsonVisitorInt
-{
-	rapidjson::Value Serialize(const tKiwiValue& kiwi_value);
-};
-
-class JsonVisitorFloat
-{
-	rapidjson::Value Serialize(const tKiwiValue& kiwi_value);
-};
-
-class JsonVisitorString
-{
-	rapidjson::Value Serialize(const tKiwiValue& kiwi_value);
-};
-
-class JsonVisitorArray
-{
-	rapidjson::Value Serialize(const tKiwiValue& kiwi_value);
-}; 
-
-class JsonVisitorObject
-{
-	rapidjson::Value Serialize(const tKiwiValue& kiwi_value);
-};
-
-
-

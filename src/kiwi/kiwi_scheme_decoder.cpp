@@ -1,31 +1,27 @@
 ﻿
 #include <type_traits>
+#include <stdexcept>
+#include <format>
 
 #include "kiwi_scheme_decoder.h"
 
 KiwiScheme::KiwiScheme(TVectorData &&vecDataFirstChunk)
-	: m_vecDataScheme{std::move(vecDataFirstChunk)}
+	: m_reader{std::move(vecDataFirstChunk)}
 {
+	DecodeScheme(m_reader);
 }
 
-
-bool KiwiScheme::Decode()
-{
-	KiwiReader kwReaderScheme(std::move(m_vecDataScheme));
-	DecodeScheme(kwReaderScheme);
-
-	return true;
-}
 
 void KiwiScheme::DecodeScheme(KiwiReader &reader)
 {
 	const UINT iTypes = reader.GetUint();
+	m_vecTypes.reserve(iTypes);
 	for(int i = 0; i < iTypes; i++)
 	{
-		KiwiTypeScheme type
+		KiwiSchemeType type
 		{
 			.m_strName = reader.GetString(),
-			.m_iKind = reader.GetByte()
+			.m_eKind = static_cast<EEntityKind>(reader.GetByte())
 		};
 
 		auto &mapFields = type.m_mapFields;
@@ -50,18 +46,27 @@ void KiwiScheme::DecodeScheme(KiwiReader &reader)
 }
 
 
-tVecTypes KiwiScheme::GetTypes()
+const TVecSchemeTypes& KiwiScheme::GetTypes()
 {
 	return m_vecTypes;
 }
 
-const KiwiTypeScheme& KiwiScheme::GetTypeById(const UINT id)
+
+const KiwiSchemeType& KiwiScheme::GetTypeById(const UINT id)
 {
-	return m_vecTypes[id];
+	if (id >= m_vecTypes.size())
+		throw std::out_of_range(std::format("KiwiScheme::GetTypeById() - no type with id {}. fatal error", id));
+
+	return m_vecTypes.at(id);
 }
 
 
-const KiwiTypeScheme &KiwiScheme::FindRootType(const std::string &strRootSchemeName)
+const KiwiSchemeType &KiwiScheme::FindRootType(const std::string &strRootSchemeName)
 {
-	return *std::ranges::find(m_vecTypes, strRootSchemeName, &KiwiTypeScheme::m_strName);
+	auto it = std::ranges::find(m_vecTypes, strRootSchemeName, &KiwiSchemeType::m_strName);
+
+	if (it == m_vecTypes.end())
+		throw std::out_of_range(std::format("KiwiScheme::FindRootType() - no type with name {}. fatal error", strRootSchemeName));
+
+	return *it;
 }

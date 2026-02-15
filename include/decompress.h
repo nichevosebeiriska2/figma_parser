@@ -3,15 +3,35 @@
 #include <string>
 #include <optional>
 #include <span>
+#include <filesystem>
 
-
-#include <zlib.h>
-#include <zstd.h>
 #include "types.h"
+#include "argumentParser.h"
 
-enum class CompressionFormat { ZLIB, GZIP, RAW_DEFLATE };
-using tOptData = std::optional<TVectorData>;
+class CDecompressor
+{
+	TVectorData m_vecDataScheme;
+	TVectorData m_vecDataMain;
+	TVectorData m_vecRawData;
 
-tOptData smart_decompress(std::span<BYTE>& compressed);
-tOptData decompress_zstd_chunk(TVectorData &&vecData);
-tOptData ReadFile(const std::string &strPath);
+	std::string m_strErrorMessage;
+	std::filesystem::path m_pathToFigFile;
+	bool m_bHasError{ false };
+	std::string m_strVigmaHeader;
+	UINT m_iFigmaVersion{ 0 };
+	UINT m_iSecondChunkOffset{ 0 };
+
+	constexpr static UINT cUiFigmaHeaderSize{ 16 };
+
+protected:
+	bool DecompressSchemeChunk();
+	bool DecompressMainChunk();
+
+public:
+	CDecompressor(const CArgumentParser& argParser);
+
+	TVectorData&& GetSchemeData();
+	TVectorData&& GetMainData();
+	std::string GetErrorMessage();
+	bool HasError();
+};

@@ -1,131 +1,67 @@
 
+#include <fstream>
+#include <optional>
+#include <cstdlib>
+#include <print>
+
+#include <zlib.h>
+#include <zstd.h>
+
 #include "decompress.h"
 #include "types.h"
 
-#include <fstream>
-#include <optional>
+enum class CompressionFormat { ZLIB, GZIP, RAW_DEFLATE };
 
 
-std::vector<char> decompress_zstd_file(const std::string &input_path)
+CompressionFormat DetectFormat(unsigned char* data)
 {
-	// 1. Читаем сжатый файл
-	std::ifstream in(input_path, std::ios::binary | std::ios::ate);
-	if(!in)
-	{
-		throw std::runtime_error("Не удалось открыть файл: " + input_path);
-	}
+	uint16_t firstTwoBytes = (data[0] << 8) | data[1];
 
-	std::streamsize size = in.tellg();
-	in.seekg(0, std::ios::beg);
-
-	std::vector<char> compressed(size);
-	if(!in.read(compressed.data(), size))
-	{
-		throw std::runtime_error("Ошибка чтения файла");
-	}
-
-	// 2. Определяем размер распакованных данных (если известен из заголовка)
-	unsigned long long uncompressed_size = ZSTD_getFrameContentSize(
-		compressed.data(),
-		compressed.size()
-	);
-
-	if(uncompressed_size == ZSTD_CONTENTSIZE_ERROR)
-	{
-		throw std::runtime_error("Невалидный zstd-фрейм");
-	}
-
-	// Если размер неизвестен (потоковая передача), используем эвристику
-	if(uncompressed_size == ZSTD_CONTENTSIZE_UNKNOWN)
-	{
-		uncompressed_size = compressed.size() * 3;  // 3x — разумная оценка
-	}
-
-	// 3. Выделяем буфер для распакованных данных
-	std::vector<char> decompressed(uncompressed_size);
-
-	// 4. Распаковываем
-	size_t result = ZSTD_decompress(
-		decompressed.data(),
-		decompressed.size(),
-		compressed.data(),
-		compressed.size()
-	);
-
-	// 5. Проверяем ошибки
-	if(ZSTD_isError(result))
-	{
-		throw std::runtime_error(
-			std::string("Ошибка распаковки: ") + ZSTD_getErrorName(result)
-		);
-	}
-
-	// 6. Обрезаем буфер до реального размера
-	decompressed.resize(result);
-	return decompressed;
-}
-
-CompressionFormat detect_format(unsigned char* data)
-{
-	uint16_t cmf_flg = (data[0] << 8) | data[1];
-
-	// Проверка zlib: (CMF << 8) + FLG должно делиться на 31
-	if(cmf_flg % 31 == 0 && (data[0] & 0x0F) == 8)
+	// if first byte is equal to 78 
+	if((firstTwoBytes & 0xFF00) == 0x7800)
 		return CompressionFormat::ZLIB;
 
 	// if first 2 bytes eq to 1F 8B
-	if(data[0] == 0x1F && data[1] == 0x8B)
+	if ((firstTwoBytes & 0xFFFF) == 0x1F8B)
 		return CompressionFormat::GZIP;
 
 	return CompressionFormat::RAW_DEFLATE;
 }
 
 
-tOptData decompress_zstd_chunk(TVectorData && compressed)
+bool DecompressChunkZSTD(const std::span<BYTE>& compressedDataView, TVectorData& vecDataOutput)
 {
-	unsigned long long uncompressed_size = ZSTD_getFrameContentSize(compressed.data(), compressed.size());
+	UINT64 iUncompressedSize = ZSTD_getFrameContentSize(compressedDataView.data(), compressedDataView.size());
 
-	if (uncompressed_size == ZSTD_CONTENTSIZE_ERROR)
-		return std::nullopt;
+	if (iUncompressedSize == ZSTD_CONTENTSIZE_ERROR)
+		return false;
 
-	// Если размер неизвестен (потоковая передача), используем эвристику
-	if(uncompressed_size == ZSTD_CONTENTSIZE_UNKNOWN)
-	{
-		uncompressed_size = compressed.size() * 3;  // 3x — разумная оценка
-	}
+	if(iUncompressedSize == ZSTD_CONTENTSIZE_UNKNOWN)
+		iUncompressedSize = compressedDataView.size() * 3;
 
-	// 3. Выделяем буфер для распакованных данных
-	std::vector<unsigned char> decompressed(uncompressed_size);
+	vecDataOutput.clear();
+	vecDataOutput.resize(iUncompressedSize);
 
-	// 4. Распаковываем
 	size_t result = ZSTD_decompress(
-		decompressed.data(),
-		decompressed.size(),
-		compressed.data(),
-		compressed.size()
+		vecDataOutput.data(),
+		vecDataOutput.size(),
+		compressedDataView.data(),
+		compressedDataView.size()
 	);
 
-	// 5. Проверяем ошибки
 	if(ZSTD_isError(result))
-	{
-		throw std::runtime_error(
-			std::string("Ошибка распаковки: ") + ZSTD_getErrorName(result)
-		);
-	}
+		return false;
 
-	// 6. Обрезаем буфер до реального размера
-	decompressed.resize(result);
-	return decompressed;
+	vecDataOutput.resize(result);
+	return true;
 }
 
 
-tOptData smart_decompress(std::span<BYTE>& compressed)
+bool DecompressChunkZLIB(const std::span<BYTE>& compressedDataView, TVectorData& vecOutputData)
 {
-	z_stream strm = {0};
-	int window_bits = MAX_WBITS;  // 15 по умолчанию
+	int window_bits = 0;
 
-	auto format = detect_format(compressed.data());
-	switch(format)
+	switch(DetectFormat(compressedDataView.data()))
 	{
 		case CompressionFormat::ZLIB:
 			window_bits = MAX_WBITS;      // 15
@@ -136,37 +72,157 @@ tOptData smart_decompress(std::span<BYTE>& compressed)
 		case CompressionFormat::RAW_DEFLATE:
 			window_bits = -MAX_WBITS;     // -15
 			break;
+		default :
+			window_bits = MAX_WBITS; // 15 bits by default
 	}
 
-	// Инициализация с выбранным форматом
-	if(inflateInit2(&strm, window_bits) != Z_OK)
-		return std::nullopt;
+	z_stream strm = { 0 };
+	if (inflateInit2(&strm, window_bits) != Z_OK)
+		return false;
 
-	// Распаковка (как в базовом примере)
-	strm.avail_in = compressed.size();
-	strm.next_in = const_cast<Bytef *>(compressed.data());
+	vecOutputData.clear();
+	vecOutputData.resize(compressedDataView.size() * 5);// reserver 5 times of input data
 
-	TVectorData decompressed(compressed.size() * 5); // reserver 5 times of input data. its 
-	strm.avail_out = decompressed.size();
-	strm.next_out = decompressed.data();
+	strm.avail_in = compressedDataView.size();
+	strm.next_in = const_cast<Bytef*>(compressedDataView.data());
+	strm.avail_out = vecOutputData.size();
+	strm.next_out = vecOutputData.data();
 
 	const int ret = inflate(&strm, Z_FINISH);
 	inflateEnd(&strm);
 
-	if(ret != Z_STREAM_END)
-		return std::nullopt;
+	if (ret != Z_STREAM_END)
+		return false;
 
-	decompressed.shrink_to_fit();
+	vecOutputData.shrink_to_fit();
 
-	return decompressed;
+	return true;
 }
 
-std::optional<TVectorData> ReadFile(const std::string &strPath)
+
+bool ReadFile(const std::filesystem::path &strPath, TVectorData& vecOutputData)
 {
 	std::ifstream file(strPath, std::ios::binary);
 
 	if(!file.is_open())
-		return std::nullopt;
+		return false;
 
-	return TVectorData{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>{}};
+	vecOutputData = TVectorData{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>{}};
+
+	return !file.fail();
+}
+
+// windows system call to decompress initial .fig file
+bool UpzipFile(const std::filesystem::path& pathToFile, const std::filesystem::path& pathOutput)
+{
+	using namespace std::filesystem;
+
+	if (!exists(pathOutput))
+	{
+		create_directories(pathOutput);
+		std::println("the file path {} did not exist and was created : {}", pathOutput.string(), absolute(pathOutput).string());
+	}
+
+	std::string strCmd = "powershell.exe -Command \"Expand-Archive -Path '"
+		+ pathToFile.generic_string()
+		+ "' -DestinationPath '" + pathOutput.generic_string()
+		+ "' -Force\"";
+
+	return std::system(strCmd.c_str()) == 0;
+}
+
+
+CDecompressor::CDecompressor(const CArgumentParser& argParser)
+	: m_pathToFigFile{ argParser.GetPathToFigFile()}
+{
+	if (!UpzipFile(argParser.GetPathToFile(), argParser.GetPathToOutputFile()))
+	{
+		m_bHasError = true;
+		m_strErrorMessage = "CDecompressor::failed to unzip file";
+		return;
+	}
+
+	if (!ReadFile(m_pathToFigFile, m_vecRawData))
+	{
+		m_strErrorMessage = std::format("CDecompressor::failed to read .fig file {}", std::filesystem::absolute("failed to read .fig file {}").string());
+		m_bHasError = true;
+		return;
+	}
+
+	if (!m_bHasError && (!DecompressSchemeChunk() || !DecompressMainChunk()))
+	{
+		m_bHasError = true;
+		m_strErrorMessage = "CDecompressor::chunks decompression error";
+		return;
+	}
+
+	m_vecRawData.clear();
+}
+
+TVectorData&& CDecompressor::GetSchemeData()
+{
+	return std::move(m_vecDataScheme);
+}
+
+TVectorData&& CDecompressor::GetMainData()
+{
+	return std::move(m_vecDataMain);
+}
+
+bool CDecompressor::DecompressSchemeChunk()
+{
+	m_strVigmaHeader = std::string{ m_vecRawData.data(), m_vecRawData.data() + 12 };
+	m_iFigmaVersion = *reinterpret_cast<UINT*>(m_vecRawData.data() + 8);
+
+	const UINT iSize = *reinterpret_cast<UINT*>(m_vecRawData.data() + 12);
+	m_iSecondChunkOffset = iSize + cUiFigmaHeaderSize;
+
+	if (m_vecRawData.size() < cUiFigmaHeaderSize + iSize)
+	{
+		m_strErrorMessage = "first chunk size > canvas.fig file size";
+		m_bHasError = true;
+		return false;
+	}
+
+	if (!DecompressChunkZLIB({ m_vecRawData.begin() + cUiFigmaHeaderSize, m_vecRawData.begin() + iSize + cUiFigmaHeaderSize }, m_vecDataScheme))
+	{
+		m_strErrorMessage = "failed to decompress scheme data chunk";
+		m_bHasError = true;
+		return false;
+	}
+
+	return true;
+}
+
+bool CDecompressor::DecompressMainChunk()
+{
+	const int iNextChunkSize = *reinterpret_cast<int*>(m_vecRawData.data() + m_iSecondChunkOffset);
+
+	if (m_vecRawData.size() < iNextChunkSize + 4 + m_iSecondChunkOffset)
+	{
+		m_strErrorMessage = "second chunk size reached out of canvas.fig file size";
+		m_bHasError = true;
+		return false;
+	}
+
+	if(! DecompressChunkZSTD(std::span{ m_vecRawData.begin() + m_iSecondChunkOffset + 4
+										, m_vecRawData.begin() + m_iSecondChunkOffset + 4 + iNextChunkSize }, m_vecDataMain))
+	{
+		m_strErrorMessage = "failed to decompress main data chunk";
+		m_bHasError = true;
+		return false;
+	}
+
+	return true;
+}
+
+std::string CDecompressor::GetErrorMessage()
+{
+	return m_strErrorMessage;
+}
+
+
+bool CDecompressor::HasError()
+{
+	return m_bHasError;
 }

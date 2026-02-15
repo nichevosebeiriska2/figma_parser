@@ -1,9 +1,10 @@
 ﻿
 #include <type_traits>
+#include <stdexcept>
 
 #include "kiwi_decoder.h"
 
-tKiwiValue KiwiDecoder::DecodePrimitiveType(KiwiReader &reader, UINT iType)
+TKiwiValue KiwiDecoder::DecodePrimitiveType(KiwiReader &reader, UINT iType)
 {
 	switch(iType)
 	{
@@ -12,9 +13,9 @@ tKiwiValue KiwiDecoder::DecodePrimitiveType(KiwiReader &reader, UINT iType)
 		case (EPrimitiveDataType::EPrimitiveDataTypeByte):
 			return reader.GetByte();
 		case (EPrimitiveDataType::EPrimitiveDataTypeInt):
-			return reader.GetInt();
+			return reader.GetInt64();
 		case (EPrimitiveDataType::EPrimitiveDataTypeUint):
-			return reader.GetUint();
+			return reader.GetUint64();
 		case (EPrimitiveDataType::EPrimitiveDataTypeFloat):
 			return reader.GetFloat();
 		case (EPrimitiveDataType::EPrimitiveDataTypeString):
@@ -24,17 +25,18 @@ tKiwiValue KiwiDecoder::DecodePrimitiveType(KiwiReader &reader, UINT iType)
 		case(EPrimitiveDataType::EPrimitiveDataTypeUint64) :
 			return reader.GetUint64();
 	}
-	return std::monostate{};
+
+	throw std::out_of_range("KiwiDecoder::DecodePrimitiveType() : invalid primitive type id. fatal error");
 }
 
 
-tKiwiValue KiwiDecoder::DecodeTypeInner(KiwiReader &reader, int iFieldType, bool bArray)
+TKiwiValue KiwiDecoder::DecodeTypeInner(KiwiReader &reader, int iFieldType, bool bArray)
 {
 	if(bArray)
 	{
 		const UINT iNumOfElements = reader.GetUint();
 
-		auto pArray = std::make_unique<sArray>();
+		auto pArray = std::make_unique<SArray>();
 		pArray->m_vecValues.reserve(iNumOfElements);
 
 		for(int i = 0; i < iNumOfElements; i++)
@@ -43,71 +45,74 @@ tKiwiValue KiwiDecoder::DecodeTypeInner(KiwiReader &reader, int iFieldType, bool
 		return std::move(pArray);
 	}
 
-	if(iFieldType < 0)
+	else if(iFieldType < 0)
 		return DecodePrimitiveType(reader, ~iFieldType);
 	
 	else
 	{
-		const KiwiTypeScheme& field = m_scheme.GetTypeById(iFieldType);
+		const KiwiSchemeType& field = m_scheme.GetTypeById(iFieldType);
 
-		switch(field.m_iKind)
+		switch(field.m_eKind)
 		{
-			case (0):
+			case (EEntityKindEnum):
 				return DecodeEnum(reader, field);
-
-			case (1):
+			case (EEntityKindStruct):
 				return DecodeStruct(reader, field);
-
-			case (2):
+			case (EEntityKindMessage):
 				return DecodeMessage(reader, field);
-
 			default:
-				break;
+				throw std::out_of_range("KiwiDecoder::DecodeTypeInner() : invalid entity kind id. fatal error");
 		}
 	}
 
-
-	return -1;
+	throw std::out_of_range("KiwiDecoder::DecodeTypeInner() : value is not array/primitive type/enum/struc/message. fatal error");
 }
 
 
-tKiwiValue KiwiDecoder::DecodeEnum(KiwiReader &reader, const KiwiTypeScheme& type)
+TKiwiValue KiwiDecoder::DecodeEnum(KiwiReader &reader, const KiwiSchemeType& type)
 {
 	return std::string_view{type.m_mapFields.at(reader.GetUint()).m_strName};
 }
 
 
-tKiwiValue KiwiDecoder::DecodeStruct(KiwiReader &reader, const KiwiTypeScheme& type)
+TKiwiValue KiwiDecoder::DecodeStruct(KiwiReader &reader, const KiwiSchemeType& type)
 {
-	uPtr<sStruct> sPtrStruct = std::make_unique<sStruct>();
-	for(const auto &[field_id, field] : type.m_mapFields)
-		sPtrStruct->m_mapValues.emplace(std::make_pair(std::string_view{field.m_strName}, DecodeTypeInner(m_reader, field.m_iType, field.m_bArray)));
+	uPtr<SStruct> sPtrStruct = std::make_unique<SStruct>();
+	for (const auto& [field_id, field] : type.m_mapFields)
+		sPtrStruct->m_mapValues[field.m_strName] = DecodeTypeInner(m_reader, field.m_iType, field.m_bArray);
 
-	return std::move(sPtrStruct);
+	return sPtrStruct;
 }
 
-tKiwiValue KiwiDecoder::DecodeMessage(KiwiReader &reader, const KiwiTypeScheme &type_root)
+TKiwiValue KiwiDecoder::DecodeMessage(KiwiReader &reader, const KiwiSchemeType &type_root)
 {
-	auto field_id = reader.GetUint();
+	UINT iFieldId;
 
-	uPtr<sMessage> sPtrMessage = std::make_unique<sMessage>();
-	while(field_id != 0)
+	uPtr<SMessage> sPtrMessage = std::make_unique<SMessage>();
+	while(iFieldId = reader.GetUint())
 	{
-		const sKiwiField& field = type_root.m_mapFields.at(field_id);
-
-		sPtrMessage->m_mapValues.emplace(std::make_pair(std::string_view{field.m_strName}, DecodeTypeInner(m_reader, field.m_iType, field.m_bArray)));
-		field_id = reader.GetUint();
+		const sKiwiField& field = type_root.m_mapFields.at(iFieldId);
+		sPtrMessage->m_mapValues[field.m_strName] = DecodeTypeInner(m_reader, field.m_iType, field.m_bArray);
 	}
 
-	return std::move(sPtrMessage);
+	return sPtrMessage;
 }
 
 KiwiDecoder::KiwiDecoder(KiwiScheme&& scheme, TVectorData&& vecDataSecondChunk)
 	: m_scheme{std::move(scheme)}
 	, m_reader{std::move(vecDataSecondChunk)}
-{}
-
-tKiwiValue KiwiDecoder::Decode()
 {
-	return DecodeMessage(m_reader, m_scheme.FindRootType("Message"));
+	Decode();
 }
+
+void KiwiDecoder::Decode()
+{ 
+	m_rootMessage = DecodeMessage(m_reader, m_scheme.FindRootType("Message"));
+}
+
+
+TKiwiValue& KiwiDecoder::GetRootMessage()
+{
+	return m_rootMessage;
+}
+

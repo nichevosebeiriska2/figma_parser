@@ -1,7 +1,10 @@
 #include "kiwi_reader.h"
 #include <cmath>
+#include <bitset>
 
-std::string PrimitiveDataTypeToString(EPrimitiveDataType eType)
+// look 'https://github.com/evanw/kiwi' for more info about kiwi types
+
+std::string_view PrimitiveDataTypeToString(EPrimitiveDataType eType)
 {
 	switch (eType)
 	{
@@ -25,7 +28,7 @@ std::string PrimitiveDataTypeToString(EPrimitiveDataType eType)
 	return "";
 }
 
-std::string ComplexDataTypeToString(EEntityKind eType)
+std::string_view ComplexDataTypeToString(EEntityKind eType)
 {
 	switch (eType)
 	{
@@ -49,11 +52,9 @@ std::string KiwiReader::GetString()
 	std::string strResult;
 
 	BYTE b = GetByte();
-	BYTE b_prev;
-	while(!(b == 0x0 /*&& b_prev == 0x0*/))
+	while(b != 0x0)
 	{
 		strResult += b;
-		b_prev = b;
 		b = GetByte();
 	}
 
@@ -65,22 +66,15 @@ bool KiwiReader::GetBool()
 	return GetByte() > 0;
 }
 
-BYTE KiwiReader::GetByte() // LEB128 op
+BYTE KiwiReader::GetByte()
 {
-	return m_data[m_iCurrentPosition++];
+	return m_data.at(m_iCurrentPosition++ +1000000);
 
 }
 int KiwiReader::GetInt()
 {
-	UINT i = GetUint();
-
+	const UINT i = GetUint();
 	return (i & 1)?  ~(i >> 1) : i >> 1;
-
-	if(i & 1)
-		return ~(i >> 1);
-	else
-		return i >> 1;
-	//return ~i;
 }
 
 UINT KiwiReader::GetUint()
@@ -109,20 +103,8 @@ float KiwiReader::GetFloat()
 	if(b == 0)
 		return 0.0f;
 
-	BYTE b0 = b;
-	BYTE b1 = GetByte();
-	BYTE b2 = GetByte();
-	BYTE b3 = GetByte();
-
-	UINT bits = (b | b1 << 8 | b2 << 16 | b3 << 24);
-	bits = (bits << 23) | (bits >> 9);
-
-	float f = *reinterpret_cast<float *>(&bits);
-
-	if(std::isnan(f) || std::isinf(f))
-	{
-		int a = 1;
-	}
+	UINT bits = (b | GetByte() << 8 | GetByte() << 16 | GetByte() << 24);
+	bits = bits << 23 | bits >> 9;// sometimes it return "nan" 
 
 	return *reinterpret_cast<float*>(&bits);
 }
@@ -152,3 +134,8 @@ UINT64 KiwiReader::GetUint64()
 	return iValue;
 }
 
+
+UINT KiwiReader::GetOffset() const
+{
+	return m_iCurrentPosition;
+}
