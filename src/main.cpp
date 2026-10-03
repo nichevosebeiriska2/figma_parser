@@ -8,13 +8,13 @@
 #include "argumentParser.h"
 
 
-void main(int argc, char** argv)
+int main(int argc, char** argv)
 {
 	using namespace std::filesystem;
 	
 	CArgumentParser argParser(argc, argv);
 	if (argParser.HasErrors())
-		return;
+		return -1;
 
 	std::println("extracting .fig data...");
 
@@ -22,12 +22,12 @@ void main(int argc, char** argv)
 
 	if (decompressor.HasError())
 	{
-		std::println("{}", decompressor.GetErrorMessage());
-		return;
+		std::cout<<(decompressor.GetErrorMessage());
+		return -1;
 	}
 
 	// we can try find type in scheme with invalid type id or read from buffer after it reached its end. 
-	// it definitely means some fatal internal error in kiwi encoding
+	// it definitely means some fatal internal error in kiwi deconding. 
 	try 
 	{
 		KiwiScheme scheme(decompressor.GetSchemeData());
@@ -37,7 +37,7 @@ void main(int argc, char** argv)
 		else
 		{
 			std::println("failed to save kiwi scheme");
-			return;
+			return -1;
 		}
 
 		KiwiDecoder decoder(std::move(scheme), decompressor.GetMainData());
@@ -48,7 +48,8 @@ void main(int argc, char** argv)
 	}
 	catch (std::out_of_range ex)
 	{
-		std::println("some fatal error occured :");
-		std::cout <<(ex.what());
+		std::println("some fatal error occured : {}", ex.what());
 	}
+
+	return 0;
 }

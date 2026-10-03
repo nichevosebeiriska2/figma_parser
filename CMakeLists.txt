@@ -1,11 +1,30 @@
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.10)
+
+# Force static linking of MSVC runtime (/MT, /MTd) to avoid vcruntime140.dll dependency
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project(FigmaToJson)
+
 include(FetchContent)
 
-# fetch required modules
+# --- Global dependency settings (must be set before FetchContent_MakeAvailable) ---
+
+# Force static builds for all dependencies
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
+
+# Zstd build flags
+set(ZSTD_BUILD_STATIC ON CACHE BOOL "Build static zstd" FORCE)
+set(ZSTD_BUILD_SHARED OFF CACHE BOOL "Do not build shared zstd" FORCE)
+set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "Skip zstd CLI tools" FORCE)
+
+# Zlib build flags
+set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "Skip zlib examples" FORCE)
+set(SKIP_INSTALL_ALL ON CACHE BOOL "Skip installation" FORCE)
+
+# --- Fetch dependencies ---
 
 FetchContent_Declare(
   zstd
@@ -27,56 +46,49 @@ FetchContent_Declare(
   GIT_TAG        v1.1.0  
 )
 
-FetchContent_MakeAvailable(zstd ZLIB rapidjson)
+FetchContent_Populate(rapidjson)
+FetchContent_MakeAvailable(zstd ZLIB)
 
+# --- Main executable ---
 
-
-# Set variables to control ZSTD's build options (e.g., static vs shared)
-set(ZSTD_BUILD_STATIC ON)
-set(ZSTD_BUILD_SHARED OFF)
-
-set(ZLIB_LIBRARY zlib)
-set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
-
-file(GLOB_RECURSE HEADER_FILES ${CMAKE_SOURCE_DIR}/*.h)
+file(GLOB_RECURSE HEADER_FILES ${CMAKE_SOURCE_DIR}/include/*.h)
 file(GLOB_RECURSE SOURCE_FILES ${CMAKE_SOURCE_DIR}/src/*.cpp)
 
 add_executable(${PROJECT_NAME} 
-${SOURCE_FILES}
-${HEADER_FILES}
+    ${SOURCE_FILES}
+    ${HEADER_FILES}
 )
+
+# Resolve zlib target name (usually zlibstatic for static builds)
+if(TARGET zlibstatic)
+    set(ZLIB_TARGET zlibstatic) 
+elseif(TARGET zlib)
+    set(ZLIB_TARGET zlib)
+else()
+    message(FATAL_ERROR "zlib target not found!")
+endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/kiwi
     ${CMAKE_SOURCE_DIR}/include/json
     ${rapidjson_SOURCE_DIR}/include
-    ${zstd_SOURCE_DIR}/lib
-    ${zlib_SOURCE_DIR}
-    ${zlib_BINARY_DIR}
+    ${zlib_SOURCE_DIR}      # zlib.h
+    ${zlib_BINARY_DIR}      # zconf.h (generated)
+    ${zstd_SOURCE_DIR}/lib  # zstd.h
 )
 
-target_link_libraries(${PROJECT_NAME} PUBLIC zlib)
-target_link_libraries(${PROJECT_NAME} PUBLIC libzstd_static)
-
-if(TARGET zlibstatic)
-    set(ZLIB_TARGET zlibstatic) 
-elseif(TARGET zlib)
-    set(ZLIB_TARGET zlib)
-else()
-    message(FATAL_ERROR "zlib not found after add_subdirectory!")
-endif()
-
-add_custom_command(
-  TARGET ${PROJECT_NAME} POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    $<TARGET_FILE:zlib>
-    $<TARGET_FILE_DIR:${PROJECT_NAME}>
-  COMMENT "Copying ZLIB DLL to output directory"
+target_link_libraries(${PROJECT_NAME} PRIVATE 
+    ${ZLIB_TARGET}
+    libzstd_static
 )
 
+# Required for some static zstd API calls
 target_compile_definitions(${PROJECT_NAME} PRIVATE ZSTD_STATIC_LINKING_ONLY)
+
+# --- Visual Studio debug settings ---
+
 set_target_properties(${PROJECT_NAME} PROPERTIES 
-    VS_DEBUGGER_COMMAND "debug_command"
-    VS_DEBUGGER_COMMAND_ARGUMENTS "debug_arguments")
+    VS_DEBUGGER_COMMAND "$<TARGET_FILE:${PROJECT_NAME}>"
+    # VS_DEBUGGER_COMMAND_ARGUMENTS "--input test.fig --output out.json"
+)

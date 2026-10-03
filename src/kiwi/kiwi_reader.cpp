@@ -68,7 +68,7 @@ bool KiwiReader::GetBool()
 
 BYTE KiwiReader::GetByte()
 {
-	return m_data.at(m_iCurrentPosition++ +1000000);
+	return m_data.at(m_iCurrentPosition++);
 
 }
 int KiwiReader::GetInt()
